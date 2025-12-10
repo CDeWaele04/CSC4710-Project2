@@ -1,0 +1,267 @@
+CREATE TABLE Client (
+    client_id INT AUTO_INCREMENT PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name  VARCHAR(50) NOT NULL,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    phone VARCHAR(20),
+    address VARCHAR(255),
+    credit_card_token VARCHAR(255)  -- never store raw card numbers
+);
+
+CREATE TABLE ServiceRequest (
+    request_id INT AUTO_INCREMENT PRIMARY KEY,
+    client_id INT NOT NULL,
+    service_address VARCHAR(255) NOT NULL,
+    cleaning_type ENUM('basic', 'deep', 'move-out') NOT NULL,
+    num_rooms INT NOT NULL,
+    preferred_datetime DATETIME NOT NULL,
+    proposed_budget DECIMAL(10,2),
+    notes TEXT,
+    status ENUM('submitted', 'rejected', 'in_negotiation', 'accepted', 'canceled')
+           DEFAULT 'submitted',
+
+    FOREIGN KEY (client_id) REFERENCES Client(client_id)
+        ON DELETE RESTRICT  -- keep request history
+        ON UPDATE CASCADE
+);
+
+CREATE TABLE RequestPhoto (
+    photo_id INT AUTO_INCREMENT PRIMARY KEY,
+    request_id INT NOT NULL,
+    file_path VARCHAR(255) NOT NULL,
+
+    FOREIGN KEY (request_id) REFERENCES ServiceRequest(request_id)
+        ON DELETE CASCADE  -- deleting request deletes photos
+        ON UPDATE CASCADE
+);
+
+CREATE TABLE Quote (
+    quote_id INT AUTO_INCREMENT PRIMARY KEY,
+    request_id INT NOT NULL,
+    adjusted_price DECIMAL(10,2),
+    scheduled_time_window VARCHAR(100),
+    note TEXT,
+    status ENUM('pending', 'accepted', 'rejected', 'countered') DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (request_id) REFERENCES ServiceRequest(request_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE
+);
+
+CREATE TABLE ServiceOrder (
+    order_id INT AUTO_INCREMENT PRIMARY KEY,
+    quote_id INT NOT NULL UNIQUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+
+    FOREIGN KEY (quote_id) REFERENCES Quote(quote_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE
+);
+
+CREATE TABLE Bill (
+    bill_id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL UNIQUE,
+    amount DECIMAL(10,2) NOT NULL,
+    generated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    due_date DATETIME NOT NULL,
+    status ENUM('paid', 'unpaid', 'disputed') DEFAULT 'unpaid',
+
+    FOREIGN KEY (order_id) REFERENCES ServiceOrder(order_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE
+);
+
+CREATE TABLE BillResponse (
+    response_id INT AUTO_INCREMENT PRIMARY KEY,
+    bill_id INT NOT NULL,
+    sender ENUM('client', 'anna') NOT NULL,
+    note TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (bill_id) REFERENCES Bill(bill_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+);
+
+CREATE TABLE NegotiationMessage (
+    message_id INT AUTO_INCREMENT PRIMARY KEY,
+    request_id INT NOT NULL,
+    sender ENUM('client', 'anna') NOT NULL,
+    text TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (request_id) REFERENCES ServiceRequest(request_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+);
+
+//frequent clients
+SELECT 
+    C.client_id,
+    C.first_name,
+    C.last_name,
+    COUNT(O.order_id) AS completed_orders
+FROM Client C
+JOIN ServiceRequest R ON C.client_id = R.client_id
+JOIN Quote Q ON R.request_id = Q.request_id
+JOIN ServiceOrder O ON Q.quote_id = O.quote_id
+GROUP BY C.client_id
+ORDER BY completed_orders DESC;
+
+//uncommited
+SELECT 
+    C.client_id,
+    C.first_name,
+    C.last_name,
+    COUNT(R.request_id) AS total_requests
+FROM Client C
+JOIN ServiceRequest R ON C.client_id = R.client_id
+LEFT JOIN Quote Q ON R.request_id = Q.request_id
+LEFT JOIN ServiceOrder O ON Q.quote_id = O.quote_id
+GROUP BY C.client_id
+HAVING total_requests >= 3
+   AND COUNT(O.order_id) = 0;
+
+//this month's accepted quotes
+SELECT 
+    Q.quote_id,
+    Q.adjusted_price,
+    Q.scheduled_time_window,
+    R.request_id,
+    C.client_id,
+    C.first_name,
+    C.last_name
+FROM Quote Q
+JOIN ServiceRequest R ON Q.request_id = R.request_id
+JOIN Client C ON R.client_id = C.client_id
+WHERE Q.status = 'accepted'
+  AND MONTH(Q.created_at) = 12
+  AND YEAR(Q.created_at) = 2025;
+
+//prospective
+SELECT 
+    C.client_id,
+    C.first_name,
+    C.last_name,
+    C.email
+FROM Client C
+LEFT JOIN ServiceRequest R ON C.client_id = R.client_id
+WHERE R.request_id IS NULL;
+
+//largest job
+SELECT 
+    R.request_id,
+    R.num_rooms,
+    C.client_id,
+    C.first_name,
+    C.last_name
+FROM ServiceRequest R
+JOIN Quote Q ON R.request_id = Q.request_id
+JOIN ServiceOrder O ON Q.quote_id = O.quote_id
+JOIN Client C ON R.client_id = C.client_id
+WHERE O.completed_at IS NOT NULL
+ORDER BY R.num_rooms DESC
+LIMIT 1;
+
+//overdue bills
+SELECT 
+    B.bill_id,
+    B.order_id,
+    B.amount,
+    B.generated_at,
+    C.client_id,
+    C.first_name,
+    C.last_name
+FROM Bill B
+JOIN ServiceOrder O ON B.order_id = O.order_id
+JOIN Quote Q ON O.quote_id = Q.quote_id
+JOIN ServiceRequest R ON Q.request_id = R.request_id
+JOIN Client C ON R.client_id = C.client_id
+WHERE B.status = 'unpaid'
+  AND B.generated_at < NOW() - INTERVAL 7 DAY;
+
+//bad client
+SELECT DISTINCT C.client_id, C.first_name, C.last_name
+FROM Client C
+WHERE C.client_id IN (
+    SELECT C2.client_id
+    FROM Client C2
+    JOIN ServiceRequest R2 ON C2.client_id = R2.client_id
+    JOIN Quote Q2 ON R2.request_id = Q2.request_id
+    JOIN ServiceOrder O2 ON Q2.quote_id = O2.quote_id
+    JOIN Bill B2 ON O2.order_id = B2.order_id
+    WHERE B2.status = 'unpaid'
+      AND B2.generated_at < NOW() - INTERVAL 7 DAY
+)
+AND C.client_id NOT IN (
+    SELECT C3.client_id
+    FROM Client C3
+    JOIN ServiceRequest R3 ON C3.client_id = R3.client_id
+    JOIN Quote Q3 ON R3.request_id = Q3.request_id
+    JOIN ServiceOrder O3 ON Q3.quote_id = O3.quote_id
+    JOIN Bill B3 ON O3.order_id = B3.order_id
+    WHERE B3.status = 'paid'
+);
+
+//good clients
+ALTER TABLE Bill ADD COLUMN paid_at DATETIME NULL;
+
+SELECT DISTINCT 
+    C.client_id,
+    C.first_name,
+    C.last_name
+FROM Client C
+JOIN ServiceRequest R ON C.client_id = R.client_id
+JOIN Quote Q ON R.request_id = Q.request_id
+JOIN ServiceOrder O ON Q.quote_id = O.quote_id
+JOIN Bill B ON O.order_id = B.order_id
+WHERE TIMESTAMPDIFF(HOUR, B.generated_at, B.paid_at) <= 24
+  AND B.status = 'paid'
+GROUP BY C.client_id
+HAVING COUNT(B.bill_id) = (
+    SELECT COUNT(*) 
+    FROM Bill B2
+    JOIN ServiceOrder O2 ON B2.order_id = O2.order_id
+    JOIN Quote Q2 ON O2.quote_id = Q2.quote_id
+    JOIN ServiceRequest R2 ON Q2.request_id = R2.request_id
+    WHERE R2.client_id = C.client_id
+);
+
+ALTER TABLE Client
+  ADD COLUMN password_hash VARCHAR(255) NOT NULL,
+  ADD COLUMN is_admin TINYINT(1) DEFAULT 0;
+
+ALTER TABLE ServiceOrder
+ADD COLUMN request_id INT NOT NULL AFTER order_id,
+ADD COLUMN client_id INT NOT NULL AFTER request_id,
+ADD COLUMN price DECIMAL(10,2) NOT NULL AFTER client_id,
+ADD COLUMN scheduled_time_window VARCHAR(255) NOT NULL AFTER price;
+
+ALTER TABLE ServiceOrder
+ADD CONSTRAINT fk_serviceorder_request
+    FOREIGN KEY (request_id) REFERENCES ServiceRequest(request_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE;
+
+ALTER TABLE ServiceOrder
+ADD CONSTRAINT fk_serviceorder_client
+    FOREIGN KEY (client_id) REFERENCES Client(client_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE;
+
+ALTER TABLE ServiceRequest
+ADD COLUMN submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE BillResponse
+ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP 
+ON UPDATE CURRENT_TIMESTAMP;
+
+//anna admin
+UPDATE Client
+SET is_admin = 1
+WHERE email = 'anna@example.com';
+
+
+
