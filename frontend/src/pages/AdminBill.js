@@ -17,12 +17,12 @@ export default function AdminBill() {
   }, [order_id]);
 
   async function loadBill() {
-    const res = await api.get(`/requests/bills/${order_id}`);
+    const res = await api.get(`/bills/${order_id}`);
     setBill(res.data);
   }
 
   async function loadResponses() {
-    const res = await api.get(`/requests/bills/${order_id}/responses`);
+    const res = await api.get(`/bills/${order_id}/responses`);
     setResponses(res.data);
     setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   }
@@ -30,7 +30,7 @@ export default function AdminBill() {
   async function sendReply() {
     if (!reply.trim()) return;
 
-    await api.post(`/requests/bills/${bill.bill_id}/response`, {
+    await api.post(`/bills/${bill.bill_id}/respond`, {
       note: reply,
     });
 
@@ -41,9 +41,9 @@ export default function AdminBill() {
   async function reviseBill() {
     if (!editAmount) return;
 
-    await api.post(`/requests/bills/${bill.bill_id}/response`, {
+    await api.post(`/bills/${bill.bill_id}/revise`, {
       new_amount: editAmount,
-      note: reply || "Amount revised",
+      note: reply || "Bill adjusted",
     });
 
     setEditAmount("");

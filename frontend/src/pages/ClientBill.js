@@ -23,7 +23,7 @@ export default function ClientBill() {
 
   async function loadBill() {
     try {
-      const res = await api.get(`/requests/bills/${order_id}`);
+      const res = await api.get(`/bills/${order_id}`);
       setBill(res.data);
     } catch (err) {
       setError(err.response?.data?.error || "Failed to load bill");
@@ -32,7 +32,7 @@ export default function ClientBill() {
 
   async function loadResponses() {
     try {
-      const res = await api.get(`/requests/bills/${order_id}/responses`);
+      const res = await api.get(`/bills/${order_id}/responses`);
       setResponses(res.data);
     } catch (err) {
       console.error(err);
@@ -43,7 +43,7 @@ export default function ClientBill() {
     if (!note.trim()) return;
 
     try {
-      await api.post(`/requests/bills/${bill.bill_id}/dispute`, { note });
+      await api.post(`/bills/${bill.bill_id}/dispute`, { note });
       setNote("");
       loadResponses();
       loadBill();
@@ -55,11 +55,22 @@ export default function ClientBill() {
 
   async function payBill() {
     try {
-      await api.post(`/requests/bills/${bill.bill_id}/pay`);
+      await api.post(`/bills/${bill.bill_id}/pay`);
       loadBill();
       setMsg("Bill paid!");
     } catch (err) {
       setMsg(err.response?.data?.error || "Payment failed");
+    }
+  }
+
+  async function cancelDispute() {
+    try {
+      await api.post(`/bills/${bill.bill_id}/cancel`);
+      loadBill();
+      loadResponses();
+      setMsg("Dispute canceled.");
+    } catch (err) {
+      setMsg(err.response?.data?.error || "Failed to cancel dispute");
     }
   }
 
@@ -86,8 +97,19 @@ export default function ClientBill() {
           <p><b>Status:</b> {bill.status}</p>
           <p><b>Generated:</b> {new Date(bill.generated_at).toLocaleString()}</p>
 
+          {/* Pay button */}
           {bill.status === "unpaid" && (
             <button onClick={payBill}>Pay Now</button>
+          )}
+
+          {/* Cancel Dispute button */}
+          {bill.status === "disputed" && (
+            <button
+              style={{ marginLeft: "10px" }}
+              onClick={cancelDispute}
+            >
+              Cancel Dispute
+            </button>
           )}
         </>
       )}
