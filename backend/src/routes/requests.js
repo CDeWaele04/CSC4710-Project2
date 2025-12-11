@@ -701,4 +701,113 @@ router.post("/orders/:order_id/complete", authenticateToken, requireAdmin, async
   }
 });
 
+//Bill dispute client side
+router.post("/:bill_id/dispute", authenticateToken, async (req, res) => {
+  const { bill_id } = req.params;
+  const { note } = req.body;
+
+  if (!note) return res.status(400).json({ error: "Note required" });
+
+  try {
+    // Ensure bill belongs to client
+    const [rows] = await pool.execute(`
+      SELECT O.client_id
+      FROM Bill B
+      JOIN ServiceOrder O ON B.order_id = O.order_id
+      WHERE B.bill_id = ?
+    `, [bill_id]);
+
+    if (!rows.length) return res.status(404).json({ error: "Bill not found" });
+    if (rows[0].client_id !== req.user.id)
+      return res.status(403).json({ error: "Unauthorized" });
+
+    // Update bill status
+    await pool.execute(`UPDATE Bill SET status='disputed' WHERE bill_id = ?`, [bill_id]);
+
+    // Record dispute
+    await pool.execute(`
+      INSERT INTO BillResponse (bill_id, sender, note)
+      VALUES (?, 'client', ?)
+    `, [bill_id, note]);
+
+    res.json({ message: "Dispute submitted." });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not dispute bill" });
+  }
+});
+
+//admin response to bill dispute
+router.post("/:bill_id/respond", authenticateToken, requireAdmin, async (req, res) => {
+  const { bill_id } = req.params;
+  const { note } = req.body;
+
+  if (!note) return res.status(400).json({ error: "Note required" });
+
+  try {
+    await pool.execute(`
+      INSERT INTO BillResponse (bill_id, sender, note)
+      VALUES (?, 'anna', ?)
+    `, [bill_id, note]);
+
+    res.json({ message: "Reply sent." });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not send reply" });
+  }
+});
+
+//bill revision
+router.post("/:bill_id/revise", authenticateToken, requireAdmin, async (req, res) => {
+  const { bill_id } = req.params;
+  const { new_amount, note } = req.body;
+
+  if (!new_amount) return res.status(400).json({ error: "New amount required" });
+
+  try {
+    // Update bill amount (still unpaid, still disputed)
+    await pool.execute(`
+      UPDATE Bill 
+      SET amount = ?, status='disputed'
+      WHERE bill_id = ?
+    `, [new_amount, bill_id]);
+
+    // Store admin explanation
+    if (note) {
+      await pool.execute(`
+        INSERT INTO BillResponse (bill_id, sender, note)
+        VALUES (?, 'anna', ?)
+      `, [bill_id, note]);
+    }
+
+    res.json({ message: "Bill revised." });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not revise bill" });
+  }
+});
+
+//negotiation history
+router.get("/:bill_id/responses", authenticateToken, async (req, res) => {
+  const { bill_id } = req.params;
+
+  try {
+    const [rows] = await pool.execute(`
+      SELECT response_id, sender, note, timestamp
+      FROM BillResponse
+      WHERE bill_id = ?
+      ORDER BY timestamp ASC
+    `, [bill_id]);
+
+    res.json(rows);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not load responses" });
+  }
+});
+
 export default router;
