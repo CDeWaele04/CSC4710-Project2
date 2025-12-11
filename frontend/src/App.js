@@ -18,6 +18,8 @@ import ClientBill from "./pages/ClientBill";
 import AdminBill from "./pages/AdminBill";
 import AdminOrders from "./pages/AdminOrders";
 import ViewBill from "./pages/ViewBill";
+import MyBills from "./pages/MyBills";
+import AdminBills from "./pages/AdminBills";
 
 export default function App() {
   return (
@@ -43,6 +45,8 @@ export default function App() {
           <Route path="/admin/order/:order_id/bill" element={<AdminBill />} />
           <Route path="/admin/orders" element={<AdminOrders />} />
           <Route path="/orders/:order_id/bill" element={<ViewBill />} />
+          <Route path="/my-bills" element={<MyBills />} />
+          <Route path="/admin/bills" element={<AdminBills />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

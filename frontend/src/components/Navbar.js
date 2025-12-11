@@ -53,6 +53,14 @@ export default function Navbar() {
         </>
       )}
 
+      {user && !user.is_admin && (
+          <Link to="/my-bills">My Bills</Link>
+      )}
+
+      {user?.is_admin && (
+          <Link to="/admin/bills">All Bills</Link>
+      )}
+
       {user?.is_admin && <Link to="/admin/orders">Orders</Link>}
 
     </nav>
