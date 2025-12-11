@@ -5,6 +5,7 @@ import authRoutes from "./routes/auth.js";
 import requestsRoutes from "./routes/requests.js";
 import dashboardRoutes from "./routes/dashboard.js";
 import path from "path";
+import billRoutes from "./routes/bills.js";
 
 dotenv.config();
 
@@ -19,6 +20,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/requests", requestsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/bills", billRoutes);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
